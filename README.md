@@ -2,6 +2,8 @@
 
 An interactive web-based SQL query editor for Apache Flink, built with React and Vite. This tool allows you to write, execute, and manage Flink SQL queries through a modern, user-friendly interface with advanced tab management and persistence features.
 
+![Image](./image.jpeg)
+
 ## Features
 
 - **Interactive SQL Editor**: Monaco Editor with SQL syntax highlighting and Flink SQL keyword support
