@@ -250,7 +250,7 @@ This project is open source and available under the MIT License.
 ## Author
 
 **Avichay Marciano**  
-Senior Software Engineer & Data Platform Architect  
+Senior Analytics Specialist @ AWS  
 [LinkedIn Profile](https://www.linkedin.com/in/avichaym/)
 
 ## Acknowledgments
