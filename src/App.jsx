@@ -720,6 +720,7 @@ function App() {
             <h1>Flink SQL Editor</h1>
             <p className="header-subtitle">Interactive query editor for Apache Flink</p>
             <p className="header-user">@Avichay Marciano</p>
+            <p className="header-user">@Giulio</p>
           </div>
         </div>
         
