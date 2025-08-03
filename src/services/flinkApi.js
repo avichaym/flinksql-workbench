@@ -1,18 +1,46 @@
+import logger from '../utils/logger.js';
+
+const log = logger.getModuleLogger('FlinkApi');
+
 class FlinkApiService {
-  constructor(baseUrl = 'http://localhost:8083') {
+  constructor(baseUrl = '/api/flink') {
+    log.traceEnter('constructor', { baseUrl });
+    
     this.baseUrl = baseUrl;
     this.apiVersion = 'v1'; // Default to v1, will auto-detect
-    this.useProxy = true; // Use proxy by default in development
+    this.useProxy = baseUrl.startsWith('/api/flink'); // Use proxy by default
+    this.credentials = null; // Store authentication credentials
+    
+    log.traceExit('constructor');
   }
 
   setBaseUrl(url) {
-    this.baseUrl = url;
-    // If we're in development and using localhost, use proxy
-    this.useProxy = window.location.hostname === 'localhost' && url.includes('localhost:8083');
+    log.traceEnter('setBaseUrl', { url });
+    
+    this.baseUrl = url.endsWith('/') ? url.slice(0, -1) : url; // Remove trailing slash
+    
+    // Use proxy for:
+    // 1. URLs that start with /api/flink (explicit proxy)
+    // 2. External URLs (not localhost) to avoid CORS issues
+    this.useProxy = url.startsWith('/api/flink') || 
+                   (!url.includes('localhost') && (url.startsWith('http://') || url.startsWith('https://')));
+    
+    log.info('setBaseUrl', `Base URL: ${this.baseUrl} (proxy: ${this.useProxy})`);
+    log.traceExit('setBaseUrl');
+  }
+
+  setCredentials(username, password, apiToken) {
+    log.traceEnter('setCredentials', { username: username ? '***' : '', hasPassword: !!password, hasApiToken: !!apiToken });
+    this.credentials = { username, password, apiToken };
+    log.traceExit('setCredentials');
   }
 
   getProxyUrl(endpoint) {
     if (this.useProxy) {
+      // If baseUrl is already a proxy path, use it directly
+      if (this.baseUrl.startsWith('/api/flink')) {
+        return `${this.baseUrl}${endpoint}`;
+      }
       return `/api/flink${endpoint}`;
     }
     return `${this.baseUrl}${endpoint}`;
@@ -20,42 +48,73 @@ class FlinkApiService {
 
   async request(endpoint, options = {}) {
     const url = this.getProxyUrl(endpoint);
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...options.headers,
-      },
-      ...options,
+    
+    // Prepare headers
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...options.headers,
     };
 
-    console.log(`Making request to: ${url} ${this.useProxy ? '(via proxy)' : '(direct)'}`);
-    console.log(`Request config:`, JSON.stringify(config, null, 2));
+    // Add authentication headers if credentials are available
+    if (this.credentials) {
+      if (this.credentials.apiToken) {
+        // Use Bearer token if available
+        headers['Authorization'] = `Bearer ${this.credentials.apiToken}`;
+      } else if (this.credentials.username && this.credentials.password) {
+        // Use basic authentication
+        const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`);
+        headers['Authorization'] = `Basic ${encoded}`;
+      }
+    }
+    
+    const config = {
+      headers,
+      ...options,
+    };
 
     try {
       const response = await fetch(url, config);
       
-      console.log(`Response status: ${response.status}`);
-      console.log(`Response headers:`, JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
-      
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        log.error('request', `HTTP error! status: ${response.status}, body: ${errorText}`);
+        
+        // Try to parse error as JSON for better error details
+        let errorDetails = null;
+        let processedErrorMessage = errorText;
+        
+        try {
+          errorDetails = JSON.parse(errorText);
+          log.error('request', `Parsed error details: ${JSON.stringify(errorDetails)}`);
+          
+          // Extract root cause from Java exception if present
+          if (errorDetails.errors && Array.isArray(errorDetails.errors)) {
+            const rootCause = this.extractRootCause(errorDetails.errors);
+            if (rootCause) {
+              processedErrorMessage = rootCause;
+            }
+          }
+        } catch (parseError) {
+          log.warn('request', 'Could not parse error response as JSON');
+        }
+        
+        throw new Error(`HTTP error! status: ${response.status} - ${processedErrorMessage}`);
       }
       
       const data = await response.json();
-      console.log(`Response data:`, JSON.stringify(data, null, 2));
       return data;
     } catch (error) {
-      console.error('Flink API request failed:', error);
+      log.error('request', `Flink API request failed: ${error.message}`);
+      log.error('request', `Request details: ${options.method || 'GET'} ${endpoint}`);
       
       // Check if it's a CORS error
       if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-        console.error('  This looks like a CORS error. Make sure:');
-        console.error('   1. Flink SQL Gateway is running on localhost:8083');
-        console.error('   2. The Vite dev server proxy is working');
-        console.error('   3. Try restarting the dev server');
+        log.error('request', 'This looks like a CORS/Network error. Check:');
+        log.error('request', '1. Flink SQL Gateway is running on localhost:8083');
+        log.error('request', '2. The Vite dev server proxy is working');
+        log.error('request', '3. Try restarting the dev server');
+        log.error('request', '4. Check browser network tab for more details');
       }
       
       throw error;
@@ -64,22 +123,24 @@ class FlinkApiService {
 
   // Get Flink info and auto-detect API version
   async getInfo() {
+    log.traceEnter('getInfo');
+    
     try {
       // Try v1 first
-      console.log('Trying v1 API...');
       const result = await this.request('/v1/info');
       this.apiVersion = 'v1';
-      console.log('Using API v1');
+      log.info('getInfo', 'Using Flink API v1');
+      log.traceExit('getInfo', result);
       return result;
     } catch (error) {
-      console.log('v1 failed, trying v2...');
       try {
         const result = await this.request('/v2/info');
         this.apiVersion = 'v2';
-        console.log('Using API v2');
+        log.info('getInfo', 'Using Flink API v2');
+        log.traceExit('getInfo', result);
         return result;
       } catch (error2) {
-        console.error('Both v1 and v2 failed');
+        log.error('getInfo', `Both API v1 and v2 failed: ${error2.message}`);
         throw error2;
       }
     }
@@ -87,57 +148,169 @@ class FlinkApiService {
 
   // Create a new session
   async createSession(properties = {}) {
+    log.traceEnter('createSession', { properties });
+    
     const endpoint = `/${this.apiVersion}/sessions`;
-    console.log(`Creating session with endpoint: ${endpoint}`);
-    return this.request(endpoint, {
+    log.info('createSession', 'Creating session');
+    
+    // Flink SQL Gateway expects properties to be wrapped in a "properties" field
+    const requestBody = {
+      properties: properties
+    };
+    
+    const response = await this.request(endpoint, {
       method: 'POST',
-      body: JSON.stringify(properties),
+      body: JSON.stringify(requestBody),
     });
+    
+    log.info('createSession', `Session created: ${response.sessionHandle}`);
+    log.traceExit('createSession', response);
+    return response;
   }
 
   // Get session info
   async getSession(sessionHandle) {
+    log.traceEnter('getSession', { sessionHandle });
+    
     const endpoint = `/${this.apiVersion}/sessions/${sessionHandle}`;
-    console.log(`Getting session with endpoint: ${endpoint}`);
-    return this.request(endpoint);
+    const response = await this.request(endpoint);
+    
+    log.traceExit('getSession', response);
+    return response;
   }
 
   // Close a session
   async closeSession(sessionHandle) {
+    log.traceEnter('closeSession', { sessionHandle });
+    
     const endpoint = `/${this.apiVersion}/sessions/${sessionHandle}`;
-    console.log(`Closing session with endpoint: ${endpoint}`);
-    return this.request(endpoint, {
+    log.info('closeSession', `Closing session: ${sessionHandle}`);
+    
+    const response = await this.request(endpoint, {
       method: 'DELETE',
     });
+    
+    log.info('closeSession', 'Session closed');
+    log.traceExit('closeSession', response);
+    return response;
   }
 
   // Submit a SQL statement
   async submitStatement(sessionHandle, statement) {
+    log.traceEnter('submitStatement', { sessionHandle, statementLength: statement.length });
+    
     const endpoint = `/${this.apiVersion}/sessions/${sessionHandle}/statements`;
-    console.log(`Submitting statement with endpoint: ${endpoint}`);
-    console.log(`Statement: ${statement}`);
-    return this.request(endpoint, {
+    const truncatedStatement = statement.length > 100 ? `${statement.substring(0, 100)}...` : statement;
+    log.info('submitStatement', `Executing SQL: ${truncatedStatement}`);
+    
+    const response = await this.request(endpoint, {
       method: 'POST',
       body: JSON.stringify({ statement }),
     });
+    
+    log.info('submitStatement', `Statement submitted: ${response.operationHandle}`);
+    log.traceExit('submitStatement', response);
+    return response;
   }
 
   // Get operation status
   async getOperationStatus(sessionHandle, operationHandle) {
+    log.trace('getOperationStatus', 'getOperationStatus', `Checking status for operation: ${operationHandle}`);
+    
     const endpoint = `/${this.apiVersion}/sessions/${sessionHandle}/operations/${operationHandle}/status`;
-    console.log(`Getting operation status with endpoint: ${endpoint}`);
-    return this.request(endpoint);
+    
+    const response = await this.request(endpoint);
+    
+    // Only log status changes or errors, not every poll
+    if (response.status === 'ERROR') {
+      log.error('getOperationStatus', `Operation failed: ${operationHandle}`);
+      
+      // Look for error details in various possible locations
+      if (response.errorMessage) {
+        log.error('getOperationStatus', `Error: ${response.errorMessage}`);
+      }
+      if (response.exception) {
+        log.error('getOperationStatus', 'Exception', response.exception);
+      }
+    } else if (response.status === 'FINISHED') {
+      log.info('getOperationStatus', `Operation completed: ${operationHandle}`);
+    }
+    
+    return response;
   }
 
   // Get operation results
   async getOperationResults(sessionHandle, operationHandle, token = 0, rowFormat = 'JSON') {
     const endpoint = `/${this.apiVersion}/sessions/${sessionHandle}/operations/${operationHandle}/result/${token}?rowFormat=${rowFormat}`;
-    console.log(`Getting operation results with endpoint: ${endpoint}`);
-    return this.request(endpoint);
+    
+    const response = await this.request(endpoint);
+    
+    // Only log significant events, not every token fetch
+    if (token === 0) {
+      log.debug('fetchOperationResult', `Fetching results for operation`, { operationHandle });
+    }
+    
+    // If there are errors in the results, log them
+    if (response.errors && Array.isArray(response.errors) && response.errors.length > 0) {
+      log.error('fetchOperationResult', 'Errors in operation results', { 
+        operationHandle,
+        errors: response.errors 
+      });
+    }
+    
+    return response;
+  }
+
+  // Get detailed error information for a failed operation
+  async getOperationError(sessionHandle, operationHandle) {
+    try {
+      // First try to get the status with error details
+      const statusResponse = await this.getOperationStatus(sessionHandle, operationHandle);
+      
+      // Then try to get result with error details
+      const resultResponse = await this.getOperationResults(sessionHandle, operationHandle, 0);
+      
+      const errorInfo = {
+        status: statusResponse,
+        result: resultResponse,
+        extractedErrors: []
+      };
+      
+      // Extract errors from various sources
+      if (statusResponse.errorMessage) {
+        errorInfo.extractedErrors.push({
+          source: 'status.errorMessage',
+          message: statusResponse.errorMessage
+        });
+      }
+      
+      if (statusResponse.exception) {
+        errorInfo.extractedErrors.push({
+          source: 'status.exception',
+          details: statusResponse.exception
+        });
+      }
+      
+      if (resultResponse.errors) {
+        errorInfo.extractedErrors.push({
+          source: 'result.errors',
+          errors: resultResponse.errors
+        });
+      }
+      
+      return errorInfo;
+    } catch (error) {
+      log.error('getDetailedErrorInfo', `Failed to get detailed error information: ${error.message}`, {
+        error: error.stack,
+        operationHandle
+      });
+      throw error;
+    }
   }
 
   // Get all results for an operation (handles pagination)
   async getAllResults(sessionHandle, operationHandle) {
+    log.debug('getAllResults', `Fetching all results for operation`, { operationHandle });
     const results = [];
     let nextToken = 0;
     let hasMore = true;
@@ -147,20 +320,35 @@ class FlinkApiService {
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;
+      
       try {
         const response = await this.getOperationResults(sessionHandle, operationHandle, nextToken);
         
-        console.log(`Raw result response for token ${nextToken} (attempt ${attempts}):`, JSON.stringify(response, null, 2));
+        // Extract and handle result metadata
+        const resultType = response.resultType;
+        const resultKind = response.resultKind;
         
-        // Store columns from first response that has them
-        if (response.results && response.results.columns && columns.length === 0) {
-          columns = response.results.columns;
-          console.log(`Columns detected:`, JSON.stringify(columns, null, 2));
-        }
-        
-        if (response.results && response.results.data) {
-          console.log(`Data chunk ${nextToken}:`, JSON.stringify(response.results.data, null, 2));
-          results.push(...response.results.data);
+        // Handle different column sources - prioritize columnInfos over columns
+        if (response.results) {
+          if (response.results.columnInfos && response.results.columnInfos.length > 0 && columns.length === 0) {
+            columns = response.results.columnInfos;
+            log.debug('getAllResults', `Found columns from columnInfos`, { columnCount: columns.length });
+          } else if (response.results.columns && response.results.columns.length > 0 && columns.length === 0) {
+            columns = response.results.columns;
+            log.debug('getAllResults', `Found columns from columns`, { columnCount: columns.length });
+          }
+          
+          // Handle result data - check multiple possible locations
+          let dataToAdd = null;
+          if (response.results.data && Array.isArray(response.results.data)) {
+            dataToAdd = response.results.data;
+          } else if (Array.isArray(response.results)) {
+            dataToAdd = response.results;
+          }
+          
+          if (dataToAdd && dataToAdd.length > 0) {
+            results.push(...dataToAdd);
+          }
         }
 
         // Check if there are more results
@@ -168,46 +356,106 @@ class FlinkApiService {
           // Extract token from nextResultUri
           const tokenMatch = response.nextResultUri.match(/result\/(\d+)/);
           if (tokenMatch) {
-            nextToken = parseInt(tokenMatch[1]);
-            console.log(`Next token: ${nextToken}`);
+            const newToken = parseInt(tokenMatch[1]);
+            if (newToken > nextToken) {
+              nextToken = newToken;
+            } else {
+              hasMore = false;
+            }
           } else {
-            console.log(`Could not parse next token from: ${response.nextResultUri}`);
             hasMore = false;
           }
         } else {
-          console.log(`No nextResultUri found`);
           hasMore = false;
         }
 
-        // If resultType is EOS (End of Stream), we're done
+        // Handle different result types
         if (response.resultType === 'EOS') {
-          console.log(`End of stream reached`);
           hasMore = false;
+        } else if (response.resultType === 'NOT_READY') {
+          // Continue to next iteration
+        } else if (response.resultType === 'PAYLOAD') {
+          // Continue based on nextResultUri presence
         }
         
-        // Special case: if we got EOS but no data and no nextResultUri, 
-        // try the next token anyway (sometimes Flink has weird pagination)
+        // Special handling for empty first response
         if (response.resultType === 'EOS' && 
             (!response.results || !response.results.data || response.results.data.length === 0) && 
             !response.nextResultUri && 
-            nextToken === 0) {
-          console.log(`EOS with no data on first token, trying token 1...`);
+            nextToken === 0 && 
+            attempts === 1) {
           nextToken = 1;
           hasMore = true;
         }
         
       } catch (error) {
-        console.error(`Error fetching results for token ${nextToken}:`, error);
-        hasMore = false;
+        log.error('getAllResults', `Error fetching results`, { 
+          nextToken, 
+          error: error.message,
+          operationHandle 
+        });
+        throw error; // Re-throw to maintain error propagation
       }
     }
 
     if (attempts >= maxAttempts) {
-      console.warn(`Stopped after ${maxAttempts} attempts to prevent infinite loop`);
+      log.warn('getAllResults', `Stopped after max attempts to prevent infinite loop`, { maxAttempts });
     }
 
-    console.log(`Final aggregated results:`, JSON.stringify({ columns, results, totalRows: results.length, attempts }, null, 2));
+    log.info('getAllResults', `Retrieved results`, { 
+      rowCount: results.length, 
+      columnCount: columns.length,
+      operationHandle 
+    });
+
     return { results, columns };
+  }
+
+  // Extract root cause from Java exception stack trace
+  extractRootCause(errors) {
+    if (!errors || !Array.isArray(errors)) return null;
+    
+    // Look for the error message that contains the full stack trace
+    const stackTraceError = errors.find(error => 
+      typeof error === 'string' && error.includes('Caused by:')
+    );
+    
+    if (!stackTraceError) return null;
+    
+    // Split by "Caused by:" and get the last one
+    const causedByParts = stackTraceError.split('Caused by:');
+    if (causedByParts.length <= 1) return null;
+    
+    // Get the last "Caused by:" section
+    const rootCauseSection = causedByParts[causedByParts.length - 1].trim();
+    
+    // Extract just the exception type and message (first line)
+    const lines = rootCauseSection.split('\n');
+    const rootCauseLine = lines[0].trim();
+    
+    // Clean up the root cause message
+    if (rootCauseLine) {
+      // Remove common Java exception prefixes to make it more readable
+      const cleanMessage = rootCauseLine
+        .replace(/^[a-zA-Z0-9.]+Exception:\s*/, '') // Remove exception class name
+        .replace(/^[a-zA-Z0-9.]+Error:\s*/, '') // Remove error class name
+        .trim();
+      
+      return cleanMessage || rootCauseLine;
+    }
+    
+    return null;
+  }
+
+  // Helper method to analyze and log response structure (simplified for production)
+  analyzeResultStructure(response, context = '') {
+    // Only log basic structure for debugging if needed
+    if (!response) return;
+    
+    // Only log in development or when explicitly debugging
+    if (process.env.NODE_ENV === 'development') {
+      log.debug('analyzeResultStructure', `${context}: ${response.resultType || 'unknown'} - ${Object.keys(response).length} keys`);
+    }
   }
 }
 
