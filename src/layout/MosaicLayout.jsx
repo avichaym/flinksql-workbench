@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Mosaic, MosaicWindow } from 'react-mosaic-component';
 import 'react-mosaic-component/react-mosaic-component.css';
 import SqlEditor from '../components/SqlEditor';
@@ -84,7 +84,49 @@ const MosaicLayout = ({
   debugLogs,
   handleClearDebugLogs
 }) => {
-  const [currentLayout, setCurrentLayout] = useState(DEFAULT_LAYOUT);
+  const LAYOUT_CACHE_KEY = 'flink-workbench-mosaic-layout';
+  const [currentLayout, setCurrentLayout] = useState(() => {
+    // Try to load from cache on mount
+    const cached = localStorage.getItem(LAYOUT_CACHE_KEY);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    return DEFAULT_LAYOUT;
+  });
+  // Save layout to localStorage
+  const saveLayoutToCache = useCallback((layout) => {
+    try {
+      localStorage.setItem(LAYOUT_CACHE_KEY, JSON.stringify(layout));
+    } catch (e) {
+      // Ignore errors
+    }
+  }, []);
+
+  // Reset layout to default
+  const resetLayoutToDefault = useCallback(() => {
+    setCurrentLayout(DEFAULT_LAYOUT);
+    saveLayoutToCache(DEFAULT_LAYOUT);
+  }, [saveLayoutToCache]);
+
+  // Listen for save/reset events
+  useEffect(() => {
+    const handleSaveLayout = () => {
+      saveLayoutToCache(currentLayout);
+    };
+    const handleResetLayout = () => {
+      resetLayoutToDefault();
+    };
+    window.addEventListener('saveLayout', handleSaveLayout);
+    window.addEventListener('resetLayout', handleResetLayout);
+    return () => {
+      window.removeEventListener('saveLayout', handleSaveLayout);
+      window.removeEventListener('resetLayout', handleResetLayout);
+    };
+  }, [currentLayout, resetLayoutToDefault, saveLayoutToCache]);
   const [collapsedPanels, setCollapsedPanels] = useState(new Set());
 
   // Function to calculate dynamic layout based on collapsed panels
@@ -478,23 +520,18 @@ const MosaicLayout = ({
         value={currentLayout}
         onChange={(newLayout) => {
           setCurrentLayout(newLayout);
+          saveLayoutToCache(newLayout);
           // Notify components that the layout has changed with multiple timing strategies
-          // Immediate notification
           window.dispatchEvent(new CustomEvent('mosaicLayoutChange'));
-          
-          // Additional notifications for slow transitions
           requestAnimationFrame(() => {
             window.dispatchEvent(new CustomEvent('mosaicLayoutChange'));
           });
-          
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('mosaicLayoutChange'));
           }, 50);
-          
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('mosaicLayoutChange'));
           }, 150);
-          
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('mosaicLayoutChange'));
           }, 300);
