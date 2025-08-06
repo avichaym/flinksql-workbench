@@ -12,11 +12,10 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
   const editorRef = useRef(null);
   const [tabs, setTabs] = useState([]);
   const [nextTabId, setNextTabId] = useState(2);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load tabs from cache
   const loadTabsFromCache = useCallback(() => {
-    log.traceEnter('loadTabsFromCache');
-    
     try {
       const cached = localStorage.getItem(TABS_CACHE_KEY);
       if (cached) {
@@ -24,25 +23,23 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
         
         // Check cache version for compatibility
         if (parsedCache.version === CACHE_VERSION && parsedCache.tabs && parsedCache.tabs.length > 0) {
-          log.info('loadTabsFromCache', `Loading tabs from cache: ${parsedCache.tabs.length} tabs`);
-          setTabs(parsedCache.tabs);
-          setNextTabId(parsedCache.nextTabId || parsedCache.tabs.length + 1);
-          log.traceExit('loadTabsFromCache', true);
+          // Defer state updates to avoid infinite re-renders during useEffect
+          setTimeout(() => {
+            setTabs(parsedCache.tabs);
+            setNextTabId(parsedCache.nextTabId || parsedCache.tabs.length + 1);
+          }, 0);
           return true;
         }
       }
     } catch (error) {
-      log.warn('loadTabsFromCache', `Failed to load tabs from cache: ${error.message}`);
+      console.warn('Failed to load tabs from cache:', error.message);
     }
     
-    log.traceExit('loadTabsFromCache', false);
     return false;
   }, []);
 
   // Save tabs to cache
   const saveTabsToCache = useCallback((tabsToSave, nextId) => {
-    log.traceEnter('saveTabsToCache', { tabCount: tabsToSave.length, nextId });
-    
     try {
       const cacheData = {
         version: CACHE_VERSION,
@@ -51,34 +48,43 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
         nextTabId: nextId
       };
       localStorage.setItem(TABS_CACHE_KEY, JSON.stringify(cacheData));
-      log.info('saveTabsToCache', `Saved tabs to cache: ${tabsToSave.length} tabs`);
     } catch (error) {
-      log.warn('saveTabsToCache', `Failed to save tabs to cache: ${error.message}`);
+      console.warn('Failed to save tabs to cache:', error.message);
     }
-    
-    log.traceExit('saveTabsToCache');
   }, []);
 
   // Initialize tabs on component mount
   useEffect(() => {
-    const loaded = loadTabsFromCache();
-    
-    if (!loaded) {
-      // Create default tab if no cache found
-      const defaultTabs = [
-        { id: 1, name: 'Query 1', content: value || '-- Welcome to Flink SQL Editor\n-- Start writing your queries here\n', isActive: true }
-      ];
-      setTabs(defaultTabs);
-      saveTabsToCache(defaultTabs, 2);
+    if (!isInitialized) {
+      const loaded = loadTabsFromCache();
+      
+      if (!loaded) {
+        // Create default tab if no cache found - defer to avoid re-render loop
+        setTimeout(() => {
+          const defaultTabs = [
+            { id: 1, name: 'Query 1', content: value || '-- Welcome to Flink SQL Editor\n-- Start writing your queries here\n', isActive: true }
+          ];
+          setTabs(defaultTabs);
+          setNextTabId(2);
+          setIsInitialized(true);
+          saveTabsToCache(defaultTabs, 2);
+        }, 0);
+      } else {
+        setIsInitialized(true);
+      }
     }
-  }, [value, loadTabsFromCache, saveTabsToCache]);
+  }, [value, loadTabsFromCache, saveTabsToCache, isInitialized]);
 
-  // Save tabs to cache whenever tabs change
+  // Save tabs to cache whenever tabs change (debounced)
   useEffect(() => {
-    if (tabs.length > 0) {
-      saveTabsToCache(tabs, nextTabId);
+    if (isInitialized && tabs.length > 0) {
+      const timeoutId = setTimeout(() => {
+        saveTabsToCache(tabs, nextTabId);
+      }, 100); // Reduced debounce time to make it more responsive
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [tabs, nextTabId, saveTabsToCache]);
+  }, [tabs, nextTabId, saveTabsToCache, isInitialized]);
 
   // Get active tab
   const activeTab = tabs.find(tab => tab.isActive) || tabs[0];
@@ -159,7 +165,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
     if (activeTab && onChange) {
       onChange(activeTab.content);
     }
-  }, [activeTab?.content, onChange]);
+  }, [activeTab?.content]); // Removed onChange from dependencies to prevent infinite re-renders
 
   // Add new tab
   const addTab = () => {
@@ -220,6 +226,9 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
     }
     
     setTabs(newTabs);
+    // Immediately save to cache to prevent restoration
+    saveTabsToCache(newTabs, nextTabId);
+    
     log.info('closeTab', `Closed tab: ${tabToClose?.name}`);
   };
 
@@ -433,10 +442,10 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
   };
 
   // Handle content change
-  const handleChange = (newValue) => {
+  const handleChange = useCallback((newValue) => {
     const content = newValue || '';
     
-    // Update the active tab's content
+    // Update the active tab's content using functional update to avoid stale closure
     setTabs(prevTabs =>
       prevTabs.map(tab =>
         tab.isActive ? { 
@@ -446,7 +455,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
         } : tab
       )
     );
-  };
+  }, []); // No dependencies to prevent recreation on every render
 
   return (
     <div className="sql-editor-container">
