@@ -536,11 +536,15 @@ The built files will be in the `dist/` directory.
 
 This project is open source and available under the MIT License.
 
-## Author
+## Authors
 
 **Avichay Marciano**  
 Senior Analytics Specialist @ AWS  
 [LinkedIn Profile](https://www.linkedin.com/in/avichaym/)
+
+**Iulius Hutuleac**  
+Enterprise Architect  
+[LinkedIn Profile](https://www.linkedin.com/in/iuliushutuleac/)
 
 ## Acknowledgments
 
