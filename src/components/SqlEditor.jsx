@@ -1,6 +1,9 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef, useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { Plus, X } from 'lucide-react';
+import logger from '../utils/logger.js';
+
+const log = logger.getModuleLogger('SqlEditor');
 
 const TABS_CACHE_KEY = 'flink-sql-editor-tabs';
 const CACHE_VERSION = '1.0';
@@ -9,6 +12,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
   const editorRef = useRef(null);
   const [tabs, setTabs] = useState([]);
   const [nextTabId, setNextTabId] = useState(2);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load tabs from cache
   const loadTabsFromCache = useCallback(() => {
@@ -19,15 +23,18 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
         
         // Check cache version for compatibility
         if (parsedCache.version === CACHE_VERSION && parsedCache.tabs && parsedCache.tabs.length > 0) {
-          console.log('📂 Loading tabs from cache:', parsedCache.tabs.length, 'tabs');
-          setTabs(parsedCache.tabs);
-          setNextTabId(parsedCache.nextTabId || parsedCache.tabs.length + 1);
+          // Defer state updates to avoid infinite re-renders during useEffect
+          setTimeout(() => {
+            setTabs(parsedCache.tabs);
+            setNextTabId(parsedCache.nextTabId || parsedCache.tabs.length + 1);
+          }, 0);
           return true;
         }
       }
     } catch (error) {
-      console.warn('⚠️ Failed to load tabs from cache:', error);
+      console.warn('Failed to load tabs from cache:', error.message);
     }
+    
     return false;
   }, []);
 
@@ -41,32 +48,43 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
         nextTabId: nextId
       };
       localStorage.setItem(TABS_CACHE_KEY, JSON.stringify(cacheData));
-      console.log('💾 Saved tabs to cache:', tabsToSave.length, 'tabs');
     } catch (error) {
-      console.warn('⚠️ Failed to save tabs to cache:', error);
+      console.warn('Failed to save tabs to cache:', error.message);
     }
   }, []);
 
   // Initialize tabs on component mount
   useEffect(() => {
-    const loaded = loadTabsFromCache();
-    
-    if (!loaded) {
-      // Create default tab if no cache found
-      const defaultTabs = [
-        { id: 1, name: 'Query 1', content: value || '-- Welcome to Flink SQL Editor\n-- Start writing your queries here\n', isActive: true }
-      ];
-      setTabs(defaultTabs);
-      saveTabsToCache(defaultTabs, 2);
+    if (!isInitialized) {
+      const loaded = loadTabsFromCache();
+      
+      if (!loaded) {
+        // Create default tab if no cache found - defer to avoid re-render loop
+        setTimeout(() => {
+          const defaultTabs = [
+            { id: 1, name: 'Query 1', content: value || '-- Welcome to Flink SQL Editor\n-- Start writing your queries here\n', isActive: true }
+          ];
+          setTabs(defaultTabs);
+          setNextTabId(2);
+          setIsInitialized(true);
+          saveTabsToCache(defaultTabs, 2);
+        }, 0);
+      } else {
+        setIsInitialized(true);
+      }
     }
-  }, [value, loadTabsFromCache, saveTabsToCache]);
+  }, [value, loadTabsFromCache, saveTabsToCache, isInitialized]);
 
-  // Save tabs to cache whenever tabs change
+  // Save tabs to cache whenever tabs change (debounced)
   useEffect(() => {
-    if (tabs.length > 0) {
-      saveTabsToCache(tabs, nextTabId);
+    if (isInitialized && tabs.length > 0) {
+      const timeoutId = setTimeout(() => {
+        saveTabsToCache(tabs, nextTabId);
+      }, 100); // Reduced debounce time to make it more responsive
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [tabs, nextTabId, saveTabsToCache]);
+  }, [tabs, nextTabId, saveTabsToCache, isInitialized]);
 
   // Get active tab
   const activeTab = tabs.find(tab => tab.isActive) || tabs[0];
@@ -85,10 +103,33 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
   // Expose getQueryToExecute to parent component
   useImperativeHandle(ref, () => ({
     getQueryToExecute,
+    insertSnippet: (snippetText) => {
+      if (!editorRef.current) return;
+      
+      const editor = editorRef.current;
+      const position = editor.getPosition();
+      const selection = editor.getSelection();
+      
+      // Insert snippet at cursor position or replace selection
+      const range = selection.isEmpty() 
+        ? { startLineNumber: position.lineNumber, startColumn: position.column, endLineNumber: position.lineNumber, endColumn: position.column }
+        : selection;
+      
+      editor.executeEdits('insert-snippet', [{
+        range: range,
+        text: snippetText,
+        forceMoveMarkers: true
+      }]);
+      
+      // Focus the editor
+      editor.focus();
+      
+      log.info('insertSnippet', 'Inserted snippet into editor');
+    },
     // Expose cache management functions
     clearTabsCache: () => {
       localStorage.removeItem(TABS_CACHE_KEY);
-      console.log('🗑️ Cleared tabs cache');
+      log.info('clearTabsCache', 'Cleared tabs cache');
     },
     exportTabs: () => {
       return {
@@ -99,17 +140,22 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
       };
     },
     importTabs: (importData) => {
+      log.traceEnter('importTabs', { tabCount: importData.tabs?.length });
+      
       try {
         if (importData.version === CACHE_VERSION && importData.tabs) {
           setTabs(importData.tabs);
           setNextTabId(importData.nextTabId || importData.tabs.length + 1);
           saveTabsToCache(importData.tabs, importData.nextTabId);
-          console.log('📥 Imported tabs:', importData.tabs.length, 'tabs');
+          log.info('importTabs', `Imported tabs: ${importData.tabs.length} tabs`);
+          log.traceExit('importTabs', true);
           return true;
         }
       } catch (error) {
-        console.error('❌ Failed to import tabs:', error);
+        log.error('importTabs', `Failed to import tabs: ${error.message}`);
       }
+      
+      log.traceExit('importTabs', false);
       return false;
     }
   }));
@@ -119,7 +165,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
     if (activeTab && onChange) {
       onChange(activeTab.content);
     }
-  }, [activeTab?.content, onChange]);
+  }, [activeTab?.content]); // Removed onChange from dependencies to prevent infinite re-renders
 
   // Add new tab
   const addTab = () => {
@@ -140,11 +186,14 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
     setTabs(newTabs);
     setNextTabId(prev => prev + 1);
     
-    console.log('➕ Added new tab:', newTab.name);
+    log.info('addNewTab', `Added new tab: ${newTab.name}`);
   };
 
   // Switch to tab
   const switchToTab = (tabId) => {
+    const targetTab = tabs.find(t => t.id === tabId);
+    log.traceEnter('switchToTab', { tabId, tabName: targetTab?.name });
+    
     setTabs(prevTabs => 
       prevTabs.map(tab => ({
         ...tab,
@@ -153,7 +202,8 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
       }))
     );
     
-    console.log('🔄 Switched to tab:', tabs.find(t => t.id === tabId)?.name);
+    log.info('switchToTab', `Switched to tab: ${targetTab?.name}`);
+    log.traceExit('switchToTab');
   };
 
   // Close tab
@@ -176,7 +226,10 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
     }
     
     setTabs(newTabs);
-    console.log('❌ Closed tab:', tabToClose?.name);
+    // Immediately save to cache to prevent restoration
+    saveTabsToCache(newTabs, nextTabId);
+    
+    log.info('closeTab', `Closed tab: ${tabToClose?.name}`);
   };
 
   // Rename tab (double-click)
@@ -193,7 +246,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
       )
     );
     
-    console.log('✏️ Renamed tab to:', newName.trim());
+    log.info('renameTab', `Renamed tab to: ${newName.trim()}`);
   };
 
   // Duplicate tab
@@ -218,11 +271,68 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
     setTabs(newTabs);
     setNextTabId(prev => prev + 1);
     
-    console.log('📋 Duplicated tab:', tabToDuplicate.name);
+    log.info('duplicateTab', `Duplicated tab: ${tabToDuplicate.name}`);
   };
+
+  // Effect to handle active tab changes and force layout
+  useEffect(() => {
+    if (editorRef.current && activeTab) {
+      // Small delay to ensure DOM is updated when switching tabs
+      setTimeout(() => {
+        if (editorRef.current) {
+          editorRef.current.layout();
+        }
+      }, 10);
+    }
+  }, [activeTab?.id]);
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
+    
+    // Consolidated layout update function
+    const updateLayout = () => {
+      if (editor) {
+        requestAnimationFrame(() => {
+          editor.layout();
+        });
+      }
+    };
+    
+    // Initial layout after mount
+    setTimeout(updateLayout, 50);
+    
+    // Set up resize observer for container changes
+    const resizeObserver = new ResizeObserver(updateLayout);
+    const editorContainer = editor.getContainerDomNode();
+    
+    if (editorContainer) {
+      // Observe the editor container and its immediate parent
+      resizeObserver.observe(editorContainer);
+      if (editorContainer.parentElement) {
+        resizeObserver.observe(editorContainer.parentElement);
+      }
+    }
+    
+    // Handle window resize
+    window.addEventListener('resize', updateLayout);
+    
+    // Handle mosaic layout changes with staggered updates for smooth transitions
+    const handleMosaicResize = () => {
+      updateLayout(); // Immediate update
+      setTimeout(updateLayout, 50);  // Follow-up update
+      setTimeout(updateLayout, 150); // Final update for slow transitions
+    };
+    
+    window.addEventListener('mosaicLayoutChange', handleMosaicResize);
+    window.addEventListener('panelStateChange', handleMosaicResize);
+    
+    // Clean up on unmount
+    editor.onDidDispose(() => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateLayout);
+      window.removeEventListener('mosaicLayoutChange', handleMosaicResize);
+      window.removeEventListener('panelStateChange', handleMosaicResize);
+    });
     
     // Configure SQL language
     monaco.languages.setLanguageConfiguration('sql', {
@@ -326,15 +436,16 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
   // Handle execution with selection support
   const handleExecute = () => {
     const queryToExecute = getQueryToExecute();
-    console.log(`🎯 Executing query from tab "${activeTab?.name}": ${queryToExecute.length > 100 ? queryToExecute.substring(0, 100) + '...' : queryToExecute}`);
+    const truncatedQuery = queryToExecute.length > 100 ? queryToExecute.substring(0, 100) + '...' : queryToExecute;
+    log.info('handleExecute', `Executing query from tab "${activeTab?.name}": ${truncatedQuery}`);
     onExecute(queryToExecute);
   };
 
   // Handle content change
-  const handleChange = (newValue) => {
+  const handleChange = useCallback((newValue) => {
     const content = newValue || '';
     
-    // Update the active tab's content
+    // Update the active tab's content using functional update to avoid stale closure
     setTabs(prevTabs =>
       prevTabs.map(tab =>
         tab.isActive ? { 
@@ -344,10 +455,10 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
         } : tab
       )
     );
-  };
+  }, []); // No dependencies to prevent recreation on every render
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="sql-editor-container">
       {/* Tab Bar */}
       <div className="sql-editor-tabs">
         <div className="tabs-container">
@@ -395,7 +506,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
       </div>
 
       {/* Editor */}
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div className="monaco-editor-container">
         <Editor
           height="100%"
           defaultLanguage="sql"
@@ -429,6 +540,11 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
             quickSuggestions: true,
             parameterHints: {
               enabled: true
+            },
+            // Optimized scrollbar settings
+            scrollbar: {
+              verticalScrollbarSize: 10,
+              horizontalScrollbarSize: 10
             }
           }}
         />

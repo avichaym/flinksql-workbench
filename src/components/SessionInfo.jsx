@@ -1,7 +1,13 @@
 import React from 'react';
 import { Database, Clock, RefreshCw, X, Settings, Plus } from 'lucide-react';
 
-const SessionInfo = ({ sessionInfo, onRefreshSession, onCloseSession, onNewSession, onToggleExpanded }) => {
+const SessionInfo = ({ 
+  sessionInfo, 
+  onRefreshSession, 
+  onCloseSession, 
+  onNewSession, 
+  onToggleExpanded
+}) => {
   const [expanded, setExpanded] = React.useState(false);
 
   const handleToggle = () => {
@@ -37,14 +43,14 @@ const SessionInfo = ({ sessionInfo, onRefreshSession, onCloseSession, onNewSessi
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg border border-gray-600 p-3">
+    <div className="bg-gray-800 rounded-lg border border-gray-600 p-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Database className="w-5 h-5 text-blue-400" />
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-blue-400" />
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold">Session</span>
-              <span className={`text-sm ${getStatusColor()}`}>
+              <span className="font-semibold text-sm">Session</span>
+              <span className={`text-xs ${getStatusColor()}`}>
                 {getStatusIcon()} {sessionInfo.isActive ? 'Active' : 'Inactive'}
               </span>
             </div>
@@ -69,7 +75,7 @@ const SessionInfo = ({ sessionInfo, onRefreshSession, onCloseSession, onNewSessi
             title="Start New Session (closes current session)"
           >
             <Plus className="w-3 h-3" />
-            New Session
+            New
           </button>
           {sessionInfo.isActive && (
             <>

@@ -11,12 +11,15 @@ An interactive web-based SQL query editor for Apache Flink, built with React and
 - **Real-time Query Execution**: Execute queries against Flink SQL Gateway REST API
 - **Results Visualization**: Display query results in a formatted table
 - **Execution History**: Track and revisit previous queries
-- **Connection Management**: Configurable Flink SQL Gateway endpoint
+- **Connection Management**: Configurable Flink SQL Gateway endpoint with authentication support
 - **Catalog Browser**: Left sidebar showing available catalogs with easy switching
 - **Stateful Session Management**: Maintains Flink sessions to preserve state between queries using SQL Gateway
+- **SQL Snippets System**: Reusable SQL templates and patterns loaded from YAML configuration
 - **Modern UI**: Dark theme with responsive design and polished styling
 - **Keyboard Shortcuts**: Execute queries with Ctrl+Enter, manage tabs with Ctrl+T/Ctrl+W
 - **Tab Persistence**: Automatic saving and restoration of all open tabs and their content
+- **Environment Variable Support**: Comprehensive configuration through environment variables
+- **Authentication Support**: Basic auth, token auth, and SSL configuration options
 
 ## Tab Management & Persistence
 
@@ -51,7 +54,7 @@ The editor provides programmatic access to cache management:
 
 - Node.js (version 16 or higher)
 - Apache Flink cluster with SQL Gateway enabled
-- Flink SQL Gateway running on localhost:8083 (or configure custom endpoint)
+- Flink SQL Gateway running (default: localhost:8083)
 
 ## Setup
 
@@ -60,19 +63,213 @@ The editor provides programmatic access to cache management:
    npm install
    ```
 
-2. **Start Flink SQL Gateway** (if not already running):
+2. **Configure Flink Gateway** (optional):
+   
+   Copy the example environment file and configure your settings:
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` to configure your Flink SQL Gateway connection:
+   ```bash
+   # Basic configuration
+   FLINK_HOST=http://localhost:8083
+   
+   # For authenticated gateways (choose one method):
+   # Basic Authentication
+   FLINK_USERNAME=your-username
+   FLINK_PASSWORD=your-password
+   
+   # OR Token Authentication
+   FLINK_API_TOKEN=your-bearer-token
+   
+   # SSL Configuration
+   FLINK_SSL_VERIFY=true  # Set to false for self-signed certificates
+   ```
+
+3. **Start Flink SQL Gateway** (if not already running):
    ```bash
    # In your Flink installation directory
    ./bin/start-cluster.sh
    ./bin/sql-gateway.sh start -Dsql-gateway.endpoint.rest.address=localhost
    ```
 
-3. **Start the development server**:
+4. **Start the development server**:
    ```bash
    npm run dev
    ```
 
-4. **Open your browser** and navigate to `http://localhost:3000`
+5. **Open your browser** and navigate to `http://localhost:3000`
+
+## Configuration
+
+### Environment Variables
+
+The application supports comprehensive environment variable configuration for the Flink SQL Gateway connection. Due to Vite's security model, environment variables must be prefixed with `VITE_` to be accessible in the browser.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `VITE_FLINK_HOST` | Flink SQL Gateway URL | `http://localhost:8083` | `https://flink.example.com:8083` |
+| `VITE_FLINK_USERNAME` | Username for basic auth | - | `admin` |
+| `VITE_FLINK_PASSWORD` | Password for basic auth | - | `password123` |
+| `VITE_FLINK_API_TOKEN` | Bearer token for auth | - | `eyJhbGciOiJIUzI1NiIs...` |
+| `VITE_FLINK_SSL_VERIFY` | Verify SSL certificates | `true` | `false` |
+
+#### Setting Up Environment Variables
+
+1. **Copy the example file**:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Configure your settings** in `.env`:
+   ```bash
+   # Local development (no authentication)
+   VITE_FLINK_HOST=http://localhost:8083
+   
+   # Development with basic authentication
+   VITE_FLINK_HOST=https://your-flink-server.com:8083
+   VITE_FLINK_USERNAME=admin
+   VITE_FLINK_PASSWORD=your-password
+   
+   # Production with token authentication
+   VITE_FLINK_HOST=https://your-flink-server.com:8083
+   VITE_FLINK_API_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   
+   # SSL Configuration (for self-signed certificates)
+   VITE_FLINK_SSL_VERIFY=false
+   ```
+
+3. **Restart the development server** after making changes to `.env`:
+   ```bash
+   npm run dev
+   ```
+
+#### Authentication Methods
+
+The application supports multiple authentication methods:
+
+- **No Authentication**: Only set `VITE_FLINK_HOST`
+- **Basic Authentication**: Set `VITE_FLINK_USERNAME` and `VITE_FLINK_PASSWORD`
+- **Token Authentication**: Set `VITE_FLINK_API_TOKEN`
+
+**Note**: Use either basic auth OR token auth, not both. Token auth takes precedence if both are configured.
+
+#### Environment Variable Mapping
+
+If you have OS-level environment variables (e.g., `FLINK_HOST`, `FLINK_USERNAME`), you can map them in your `.env` file:
+
+```bash
+# Map OS environment variables to Vite variables
+VITE_FLINK_HOST=${FLINK_HOST}
+VITE_FLINK_USERNAME=${FLINK_USERNAME}
+VITE_FLINK_PASSWORD=${FLINK_PASSWORD}
+VITE_FLINK_API_TOKEN=${FLINK_API_TOKEN}
+```
+
+### SQL Snippets Configuration
+
+The application includes a powerful SQL snippets system that allows teams to share and reuse common SQL patterns. Snippets are loaded from a YAML configuration file.
+
+#### Snippets File Location
+
+The snippets are loaded from `/public/snippets.yaml`. This file is served statically and can be customized for your team's needs.
+
+#### Snippets File Structure
+
+```yaml
+# SQL Snippets Configuration
+snippets:
+  - name: "Create Kafka Source Table"
+    category: "Connectors"
+    description: "Create a Kafka source table with common properties"
+    sql: |
+      CREATE TABLE kafka_source (
+        id STRING,
+        data STRING,
+        ts TIMESTAMP(3) METADATA FROM 'timestamp'
+      ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'your-topic',
+        'properties.bootstrap.servers' = 'localhost:9092',
+        'properties.group.id' = 'flink-consumer',
+        'scan.startup.mode' = 'earliest-offset',
+        'format' = 'json'
+      );
+
+  - name: "Time Window Aggregation"
+    category: "Analytics"
+    description: "Tumbling window aggregation example"
+    sql: |
+      SELECT 
+        window_start,
+        window_end,
+        COUNT(*) as event_count,
+        AVG(amount) as avg_amount
+      FROM TABLE(
+        TUMBLE(TABLE source_table, DESCRIPTOR(event_time), INTERVAL '5' MINUTES)
+      )
+      GROUP BY window_start, window_end;
+```
+
+#### Snippet Properties
+
+Each snippet must include:
+- `name`: Display name for the snippet
+- `category`: Grouping category (e.g., "Connectors", "Analytics", "Tables")
+- `description`: Brief description of what the snippet does
+- `sql`: The actual SQL code (can be multi-line using YAML's `|` syntax)
+
+#### Using Snippets
+
+1. **Access Snippets Panel**: Look for the snippets section in the UI (usually in a sidebar or panel)
+2. **Search Snippets**: Use the search functionality to filter snippets by name, description, or category
+3. **Insert Snippets**: Click on a snippet to insert it into the current editor tab
+4. **Copy Snippets**: Use the copy button to copy snippet content to clipboard
+
+#### Customizing Snippets
+
+To customize snippets for your team:
+
+1. **Edit the snippets file**:
+   ```bash
+   # Edit the public snippets file
+   nano public/snippets.yaml
+   ```
+
+2. **Add your team's common patterns**:
+   ```yaml
+   snippets:
+     - name: "Your Team's Kafka Setup"
+       category: "Team Templates"
+       description: "Standard Kafka configuration for our environment"
+       sql: |
+         CREATE TABLE kafka_setup WITH (
+           'connector' = 'kafka',
+           'properties.bootstrap.servers' = 'your-kafka-cluster:9092',
+           'properties.security.protocol' = 'SASL_SSL',
+           'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+           'properties.sasl.jaas.config' = 'org.apache.kafka.common.security.scram.ScramLoginModule required username="your-user" password="your-password";'
+         );
+   ```
+
+3. **Reload the application** or refresh the snippets panel to see your changes
+
+#### Advanced Snippets Features
+
+- **File Upload**: Some implementations support uploading custom snippet files
+- **Categories**: Organize snippets into logical categories for better organization
+- **Search**: Full-text search across snippet names, descriptions, and categories
+- **Multi-line SQL**: Support for complex, multi-statement SQL patterns
+
+#### Example Snippets Categories
+
+Common categories for organizing snippets:
+- **Connectors**: Kafka, JDBC, Filesystem connectors
+- **Tables**: Table creation patterns, DDL statements
+- **Analytics**: Window functions, aggregations, joins
+- **Data Processing**: ETL patterns, transformations
+- **Administration**: SHOW commands, metadata queries
 
 ## Usage
 
@@ -97,6 +294,27 @@ The editor provides programmatic access to cache management:
 2. **Switch catalogs** by double-clicking a catalog name
 3. **Current catalog** is highlighted with a blue background and green indicator
 4. **Refresh catalogs** using the refresh button in the sidebar header
+
+### SQL Snippets
+
+The application includes a powerful snippets system for reusing common SQL patterns:
+
+1. **Access Snippets**: Look for the snippets panel in the UI (Code icon)
+2. **Browse by Category**: Snippets are organized into categories like "Connectors", "Analytics", "Tables"
+3. **Search Snippets**: Use the search box to filter snippets by name, description, or category
+4. **Insert Snippets**: Click on any snippet to insert it into the current editor tab
+5. **Copy Snippets**: Use the copy button to copy snippet content to clipboard
+6. **Upload Custom Snippets**: Use the file upload feature to load your own snippet collections
+
+#### Available Snippet Categories:
+- **Connectors**: Kafka, JDBC, filesystem connector examples
+- **Tables**: Table creation patterns and DDL statements
+- **Analytics**: Window functions, aggregations, and analytical queries
+- **Data Processing**: ETL patterns and data transformations
+- **Administration**: SHOW commands and metadata queries
+
+#### Customizing Snippets:
+Edit `/public/snippets.yaml` to add your team's specific SQL patterns and templates.
 
 ### Example Queries
 
@@ -185,14 +403,33 @@ src/
 │   ├── ResultsDisplay.jsx     # Query results visualization
 │   ├── ExecutionHistory.jsx   # Query history management
 │   ├── SessionInfo.jsx        # Session status and controls
-│   └── CatalogSidebar.jsx     # Catalog browser and management
+│   ├── CatalogSidebar.jsx     # Catalog browser and management
+│   ├── SnippetsPanel.jsx      # Advanced snippets panel with categories
+│   ├── SimpleSnippets.jsx     # Simple snippets component
+│   └── SettingsPanel.jsx      # Configuration panel
 ├── services/
 │   ├── flinkApi.js           # Flink SQL Gateway API client
 │   ├── sessionManager.js     # Session lifecycle management
+│   ├── statementManager.js   # Statement execution orchestration
+│   ├── settingsService.js    # Configuration and environment management
 │   └── index.js              # Service exports
+├── hooks/
+│   ├── useStatementExecution.js  # Statement execution hook
+│   └── useResizable.js           # Resizable panels hook
+├── utils/
+│   └── sqlParser.js          # SQL parsing utilities
 ├── App.jsx                   # Main application component
 ├── main.jsx                  # React entry point
 └── index.css                 # Global styles and theming
+
+public/
+├── snippets.yaml             # SQL snippets configuration
+└── index.html                # HTML template
+
+Configuration:
+├── .env.example              # Environment variables template
+├── vite.config.js            # Build and development configuration
+└── package.json              # Dependencies and scripts
 ```
 
 ### Available Scripts
@@ -222,7 +459,56 @@ The built files will be in the `dist/` directory.
 
 2. **CORS Issues**: The development server includes a proxy configuration for the Flink API. In production, you may need to configure CORS on the Flink SQL Gateway.
 
-3. **Port Configuration**: If your Flink SQL Gateway runs on a different port, update the URL in the settings panel.
+3. **Port Configuration**: If your Flink SQL Gateway runs on a different port, update the URL in the settings panel or environment variables.
+
+### Environment Variables Issues
+
+1. **Variables not loading**: Ensure all environment variables are prefixed with `VITE_`:
+   ```bash
+   # Correct
+   VITE_FLINK_HOST=http://localhost:8083
+   
+   # Incorrect (won't work in browser)
+   FLINK_HOST=http://localhost:8083
+   ```
+
+2. **Environment changes not applied**: Restart the development server after changing `.env`:
+   ```bash
+   npm run dev
+   ```
+
+3. **Authentication not working**: Check that you're using either basic auth OR token auth, not both:
+   ```bash
+   # Basic auth
+   VITE_FLINK_HOST=https://example.com:8083
+   VITE_FLINK_USERNAME=admin
+   VITE_FLINK_PASSWORD=password
+   
+   # OR token auth (not both)
+   VITE_FLINK_HOST=https://example.com:8083
+   VITE_FLINK_API_TOKEN=your-token
+   ```
+
+### Snippets Issues
+
+1. **Snippets not loading**: Check that `/public/snippets.yaml` exists and is valid YAML:
+   ```bash
+   # Validate YAML syntax
+   npm install -g js-yaml
+   js-yaml public/snippets.yaml
+   ```
+
+2. **Snippets file format**: Ensure your snippets file follows the correct structure:
+   ```yaml
+   snippets:
+     - name: "Snippet Name"
+       category: "Category"
+       description: "Description"
+       sql: |
+         SELECT * FROM table;
+   ```
+
+3. **Upload issues**: When uploading custom snippets, ensure the file has a `.yaml` or `.yml` extension.
 
 ### Tab Persistence Issues
 
@@ -236,6 +522,7 @@ The built files will be in the `dist/` directory.
 - **"Failed to fetch"**: Network connectivity issues or CORS problems
 - **SQL execution errors**: Check your SQL syntax and table/connector configurations
 - **Session timeout**: Use the "New Session" button to create a fresh session
+- **"Failed to load snippets"**: Check that `/public/snippets.yaml` exists and is accessible
 
 ## Contributing
 
