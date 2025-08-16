@@ -542,10 +542,6 @@ This project is open source and available under the MIT License.
 Senior Analytics Specialist @ AWS  
 [LinkedIn Profile](https://www.linkedin.com/in/avichaym/)
 
-**Iulius Hutuleac**  
-Enterprise Architect  
-[LinkedIn Profile](https://www.linkedin.com/in/iuliushutuleac/)
-
 ## Acknowledgments
 
 - Built with [React](https://reactjs.org/) and [Vite](https://vitejs.dev/)
