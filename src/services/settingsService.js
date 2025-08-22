@@ -50,8 +50,8 @@ class SettingsService {
     // Default settings based on environment variables or fallbacks
     const defaults = {
       gateway: {
-        // Store the actual gateway URL that the user can edit
-        url: envGatewayUrl || 'http://localhost:8083',
+        // Use proxy by default for development, or environment URL if specified
+        url: envGatewayUrl || '/api/flink',
         username: envUsername || '',
         password: envPassword || '',
         apiToken: envApiToken || ''
@@ -91,10 +91,8 @@ class SettingsService {
   validateSettings(settings) {
     const validated = {
       gateway: {
-        // If the current URL is the old proxy path, use the _originalUrl or default
-        url: (settings.gateway?.url === '/api/flink') 
-          ? (settings.gateway?._originalUrl || 'http://localhost:8083')
-          : (settings.gateway?.url || 'http://localhost:8083'),
+        // Keep the URL as-is, defaulting to proxy if not set
+        url: settings.gateway?.url || '/api/flink',
         username: settings.gateway?.username || '',
         password: settings.gateway?.password || '',
         apiToken: settings.gateway?.apiToken || ''

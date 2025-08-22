@@ -49,6 +49,8 @@ class FlinkApiService {
   async request(endpoint, options = {}) {
     const url = this.getProxyUrl(endpoint);
     
+    log.info('request', `Making request to: ${url} (using ${this.useProxy ? 'proxy' : 'direct'} connection)`);
+    
     // Prepare headers
     const headers = {
       'Content-Type': 'application/json',
@@ -107,13 +109,22 @@ class FlinkApiService {
     } catch (error) {
       log.error('request', `Flink API request failed: ${error.message}`);
       log.error('request', `Request details: ${options.method || 'GET'} ${endpoint}`);
+      log.error('request', `URL used: ${url}`);
+      log.error('request', `Connection mode: ${this.useProxy ? 'proxy' : 'direct'}`);
       
       // Check if it's a CORS error
       if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-        log.error('request', 'This looks like a CORS/Network error. Check:');
-        log.error('request', '1. Flink SQL Gateway is running on localhost:8083');
-        log.error('request', '2. The Vite dev server proxy is working');
-        log.error('request', '3. Try restarting the dev server');
+        log.error('request', 'This looks like a CORS/Network error. Possible solutions:');
+        
+        if (!this.useProxy) {
+          log.error('request', '1. RECOMMENDED: Use proxy URL "/api/flink" instead of direct URL');
+          log.error('request', '2. Make sure Flink SQL Gateway allows CORS from your origin');
+        } else {
+          log.error('request', '1. Check that Flink SQL Gateway is running on localhost:8083');
+          log.error('request', '2. Verify the Vite dev server proxy configuration');
+          log.error('request', '3. Try restarting the dev server');
+        }
+        
         log.error('request', '4. Check browser network tab for more details');
       }
       

@@ -81,6 +81,7 @@ export function splitSqlStatements(sql) {
     if (!inSingleQuote && !inDoubleQuote && !inMultiLineComment && !inSingleLineComment && char === ';') {
       current += char;
       const trimmed = current.trim();
+      
       if (trimmed && !isCommentOnly(trimmed)) {
         statements.push(trimmed);
       }
@@ -95,33 +96,37 @@ export function splitSqlStatements(sql) {
 
   // Add the last statement if it exists
   const trimmed = current.trim();
+  
   if (trimmed && !isCommentOnly(trimmed)) {
     statements.push(trimmed);
   }
 
-  // Filter out comment-only statements and lines that start with --
-  return statements.filter(stmt => {
+  // Filter out comment-only statements  
+  const finalStatements = statements.filter(stmt => {
     const cleanStmt = stmt.trim();
-    return cleanStmt.length > 0 && 
-           !isCommentOnly(cleanStmt) && 
-           !cleanStmt.startsWith('--');
+    return cleanStmt.length > 0 && !isCommentOnly(cleanStmt);
   });
+  
+  return finalStatements;
 }
 
 /**
  * Checks if a statement contains only comments and whitespace
  */
 function isCommentOnly(statement) {
-  // Remove all whitespace and check if only comments remain
-  const withoutWhitespace = statement.replace(/\s+/g, ' ').trim();
+  // Remove all comments and whitespace to see if any actual SQL remains
+  let withoutComments = statement;
   
-  // Check if it's only single-line comments
-  const singleLineCommentOnly = /^(--.*(\n|$))*$/.test(withoutWhitespace);
+  // Remove single-line comments (-- until end of line)
+  withoutComments = withoutComments.replace(/--.*$/gm, '');
   
-  // Check if it's only multi-line comments
-  const multiLineCommentOnly = /^(\/\*.*?\*\/)*$/.test(withoutWhitespace.replace(/\s/g, ''));
+  // Remove multi-line comments (/* ... */)
+  withoutComments = withoutComments.replace(/\/\*[\s\S]*?\*\//g, '');
   
-  return singleLineCommentOnly || multiLineCommentOnly || withoutWhitespace === '';
+  // Remove all whitespace
+  withoutComments = withoutComments.replace(/\s+/g, '').trim();
+  
+  return withoutComments === '';
 }
 
 /**

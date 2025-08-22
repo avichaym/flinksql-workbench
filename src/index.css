@@ -2029,6 +2029,32 @@ button:hover, input:focus, select:focus {
   border-color: var(--vscode-blue);
 }
 
+.session-properties-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-properties-container .setting-textarea {
+  flex: 1;
+}
+
+.reset-button {
+  align-self: flex-start;
+  padding: 4px 8px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: 1px solid var(--vscode-button-border);
+  border-radius: 2px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reset-button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .password-input-container {
   position: relative;
   display: flex;

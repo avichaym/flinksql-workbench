@@ -23,9 +23,7 @@ const FlinkJobs = ({ sessionInfo }) => {
   useEffect(() => {
     if (sessionInfo.isActive && sessionInfo.sessionHandle) {
       loadJobs();
-      // Set up periodic refresh every 30 seconds
-      const interval = setInterval(loadJobs, 30000);
-      return () => clearInterval(interval);
+      // Auto-refresh disabled - jobs will only refresh manually or when session changes
     } else {
       // Clear jobs when session is inactive
       setJobs([]);

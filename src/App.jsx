@@ -297,7 +297,7 @@ function App() {
     } catch (error) {
       log.error('testConnection', `Connection test failed: ${error.message}`, { 
         error: error.stack,
-        bypassProxy 
+        direct 
       });
       setFlinkInfo(null);
       return false;
@@ -720,7 +720,7 @@ function App() {
             <h1>Flink SQL Editor</h1>
             <p className="header-subtitle">Interactive query editor for Apache Flink</p>
             <p className="header-user">@Avichay Marciano</p>
-            <p className="header-user">@Giulio</p>
+            <p className="header-user">@Iulius Hutuleac</p>
           </div>
         </div>
         

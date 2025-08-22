@@ -20,22 +20,38 @@ const SettingsPanel = ({ onTestConnection, isVisible, onClose }) => {
     log.info('useEffect', 'SettingsPanel loading...');
     const currentSettings = settingsService.getSettings();
     
-    // Force fix if gateway URL is still showing localhost (should use environment)
+    // Only reset if using the old default localhost URL
     if (currentSettings.gateway.url === 'http://localhost:8083') {
-      log.info('useEffect', 'Fixing default localhost URL, resetting to use environment...');
-      settingsService.resetToDefaults();
-      const fixedSettings = settingsService.getSettings();
-      setSettings(fixedSettings);
-      setSessionPropertiesText(JSON.stringify(fixedSettings.session.properties, null, 2));
-    } else if (currentSettings.gateway.url === '/api/flink') {
-      log.info('useEffect', 'Fixing legacy gateway URL setting...');
+      log.info('useEffect', 'Fixing default localhost URL, switching to proxy...');
       settingsService.resetToDefaults();
       const fixedSettings = settingsService.getSettings();
       setSettings(fixedSettings);
       setSessionPropertiesText(JSON.stringify(fixedSettings.session.properties, null, 2));
     } else {
       setSettings(currentSettings);
-      setSessionPropertiesText(JSON.stringify(currentSettings.session.properties, null, 2));
+      
+      // Validate session properties JSON before setting it
+      try {
+        const propertiesJson = JSON.stringify(currentSettings.session.properties, null, 2);
+        JSON.parse(propertiesJson); // Test if it's valid JSON
+        setSessionPropertiesText(propertiesJson);
+      } catch (error) {
+        log.warn('useEffect', 'Session properties contain invalid JSON, resetting to defaults', { 
+          error: error.message,
+          properties: currentSettings.session.properties 
+        });
+        
+        // Reset to default properties if JSON is invalid
+        const defaultProperties = {
+          'execution.runtime-mode': 'streaming',
+          'table.exec.resource.default-parallelism': '1',
+          'execution.checkpointing.interval': '10s'
+        };
+        setSessionPropertiesText(JSON.stringify(defaultProperties, null, 2));
+        
+        // Update the settings service as well
+        settingsService.updateSetting('session.properties', defaultProperties);
+      }
     }
 
     // Listen for settings changes
@@ -82,6 +98,10 @@ const SettingsPanel = ({ onTestConnection, isVisible, onClose }) => {
   const handleConnect = async () => {
     // Save settings first
     try {
+      log.debug('handleConnect', 'Attempting to parse session properties', { 
+        sessionPropertiesText: sessionPropertiesText 
+      });
+      
       const sessionProperties = JSON.parse(sessionPropertiesText);
       
       settingsService.updateSettings({
@@ -100,8 +120,24 @@ const SettingsPanel = ({ onTestConnection, isVisible, onClose }) => {
         await onTestConnection();
       }
     } catch (error) {
-      log.error('handleSave', `Invalid session properties JSON: ${error.message}`);
-      alert('Invalid JSON in session properties. Please check the format.');
+      log.error('handleConnect', `Invalid session properties JSON: ${error.message}`, { 
+        sessionPropertiesText: sessionPropertiesText,
+        error: error.stack 
+      });
+      
+      // Show more detailed error message
+      const errorMsg = `Invalid JSON in session properties: ${error.message}\n\nCurrent content:\n${sessionPropertiesText}\n\nWould you like to reset to default session properties?`;
+      
+      if (confirm(errorMsg)) {
+        // Reset to default session properties
+        const defaultProperties = {
+          'execution.runtime-mode': 'streaming',
+          'table.exec.resource.default-parallelism': '1',
+          'execution.checkpointing.interval': '10s'
+        };
+        setSessionPropertiesText(JSON.stringify(defaultProperties, null, 2));
+        setIsDirty(true);
+      }
     }
   };
 
@@ -291,16 +327,34 @@ const SettingsPanel = ({ onTestConnection, isVisible, onClose }) => {
               <tr>
                 <td className="setting-label">Session Properties</td>
                 <td className="setting-value">
-                  <textarea
-                    value={sessionPropertiesText}
-                    onChange={(e) => handleSessionPropertiesChange(e.target.value)}
-                    placeholder={`{
+                  <div className="session-properties-container">
+                    <textarea
+                      value={sessionPropertiesText}
+                      onChange={(e) => handleSessionPropertiesChange(e.target.value)}
+                      placeholder={`{
   "execution.runtime-mode": "streaming",
   "table.exec.resource.default-parallelism": "1"
 }`}
-                    className="setting-textarea"
-                    rows="6"
-                  />
+                      className="setting-textarea"
+                      rows="6"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const defaultProperties = {
+                          'execution.runtime-mode': 'streaming',
+                          'table.exec.resource.default-parallelism': '1',
+                          'execution.checkpointing.interval': '10s'
+                        };
+                        setSessionPropertiesText(JSON.stringify(defaultProperties, null, 2));
+                        setIsDirty(true);
+                      }}
+                      className="reset-button"
+                      title="Reset to default session properties"
+                    >
+                      Reset to Defaults
+                    </button>
+                  </div>
                 </td>
               </tr>
 
