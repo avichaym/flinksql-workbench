@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useImperativeHandle, forwardRef, useState, us
 import Editor from '@monaco-editor/react';
 import { Plus, X } from 'lucide-react';
 import logger from '../utils/logger.js';
+import themeService from '../services/themeService.js';
 
 const log = logger.getModuleLogger('SqlEditor');
 
@@ -13,6 +14,14 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
   const [tabs, setTabs] = useState([]);
   const [nextTabId, setNextTabId] = useState(2);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState(themeService.getCurrentTheme());
+
+  // Map application themes to Monaco Editor themes
+  const getMonacoTheme = useCallback((appTheme) => {
+    const theme = themeService.getTheme(appTheme);
+    // Use Monaco's built-in themes based on theme type
+    return theme.type === 'dark' ? 'vs-dark' : 'vs';
+  }, []);
 
   // Load tabs from cache
   const loadTabsFromCache = useCallback(() => {
@@ -85,6 +94,28 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
       return () => clearTimeout(timeoutId);
     }
   }, [tabs, nextTabId, saveTabsToCache, isInitialized]);
+
+  // Listen for theme changes
+  useEffect(() => {
+    const handleThemeChange = (newTheme) => {
+      setCurrentTheme(newTheme);
+      // Update Monaco editor theme if editor is loaded
+      if (editorRef.current && window.monaco) {
+        const monacoTheme = getMonacoTheme(newTheme);
+        window.monaco.editor.setTheme(monacoTheme);
+      }
+    };
+
+    // Subscribe to theme changes
+    themeService.addListener(handleThemeChange);
+    
+    // Set initial theme
+    setCurrentTheme(themeService.getCurrentTheme());
+
+    return () => {
+      themeService.removeListener(handleThemeChange);
+    };
+  }, [getMonacoTheme]);
 
   // Get active tab
   const activeTab = tabs.find(tab => tab.isActive) || tabs[0];
@@ -513,7 +544,7 @@ const SqlEditor = forwardRef(({ value, onChange, onExecute, isExecuting }, ref) 
           value={activeTab?.content || ''}
           onChange={handleChange}
           onMount={handleEditorDidMount}
-          theme="vs-dark"
+          theme={getMonacoTheme(currentTheme)}
           options={{
             minimap: { enabled: false },
             fontSize: 14,
