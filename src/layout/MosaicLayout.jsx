@@ -9,18 +9,18 @@ import JobsPanel from '../components/JobsPanel';
 import SnippetsPanel from '../components/SnippetsPanel';
 import SessionInfo from '../components/SessionInfo';
 import DebugPanel from '../components/DebugPanel';
+import TabbedOutputPanel from '../components/TabbedOutputPanel';
 import { Play, PlayCircle, Square, Minimize2, Maximize2, RefreshCw } from 'lucide-react';
 
 // Define the available panels
 export const MOSAIC_PANELS = {
   EDITOR: 'editor',
-  RESULTS: 'results',
+  OUTPUT: 'output', // Combined Results + Debug
   HISTORY: 'history',
   CATALOGS: 'catalogs',
   JOBS: 'jobs',
   SNIPPETS: 'snippets',
-  SESSION: 'session',
-  DEBUG: 'debug'
+  SESSION: 'session'
 };
 
 // Default layout configuration
@@ -44,15 +44,10 @@ const DEFAULT_LAYOUT = {
     splitPercentage: 50
   },
   second: {
-    // Right side: SQL workflow - Editor on top, Results and Debug below
+    // Right side: SQL workflow - Editor on top, Output (Results+Debug) below
     direction: 'column',
     first: MOSAIC_PANELS.EDITOR,
-    second: {
-      direction: 'column',
-      first: MOSAIC_PANELS.RESULTS,
-      second: MOSAIC_PANELS.DEBUG,
-      splitPercentage: 50
-    },
+    second: MOSAIC_PANELS.OUTPUT,
     splitPercentage: 50
   },
   splitPercentage: 25
@@ -169,22 +164,13 @@ const MosaicLayout = ({
         )
       },
       second: {
-        // Right side: SQL workflow - Editor on top, Results and Debug below
+        // Right side: SQL workflow - Editor on top, Output below
         direction: 'column',
         first: MOSAIC_PANELS.EDITOR,
-        second: {
-          direction: 'column',
-          first: MOSAIC_PANELS.RESULTS,
-          second: MOSAIC_PANELS.DEBUG,
-          splitPercentage: calculateSplitPercentage(
-            collapsedSet.has(MOSAIC_PANELS.RESULTS),
-            collapsedSet.has(MOSAIC_PANELS.DEBUG),
-            70
-          )
-        },
+        second: MOSAIC_PANELS.OUTPUT,
         splitPercentage: calculateSplitPercentage(
           collapsedSet.has(MOSAIC_PANELS.EDITOR),
-          collapsedSet.has(MOSAIC_PANELS.RESULTS) && collapsedSet.has(MOSAIC_PANELS.DEBUG),
+          collapsedSet.has(MOSAIC_PANELS.OUTPUT),
           50
         )
       },
@@ -194,8 +180,7 @@ const MosaicLayout = ({
         collapsedSet.has(MOSAIC_PANELS.SNIPPETS) && 
         collapsedSet.has(MOSAIC_PANELS.HISTORY), // All left panels collapsed
         collapsedSet.has(MOSAIC_PANELS.EDITOR) && 
-        collapsedSet.has(MOSAIC_PANELS.RESULTS) && 
-        collapsedSet.has(MOSAIC_PANELS.DEBUG), // All right panels collapsed
+        collapsedSet.has(MOSAIC_PANELS.OUTPUT), // All right panels collapsed
         25
       )
     };
@@ -289,16 +274,16 @@ const MosaicLayout = ({
           </div>
         );
 
-      case MOSAIC_PANELS.RESULTS:
+      case MOSAIC_PANELS.OUTPUT:
         return (
-          <div className={`mosaic-panel-content results-panel ${isCollapsed ? 'collapsed' : ''}`}>
+          <div className={`mosaic-panel-content output-panel ${isCollapsed ? 'collapsed' : ''}`}>
             {!isCollapsed && (
-              <div className="panel-content">
-                <ResultsDisplay 
-                  result={mainResult} 
-                  isExecuting={isMainExecuting || isBatchExecuting} 
-                />
-              </div>
+              <TabbedOutputPanel
+                result={mainResult}
+                isExecuting={isMainExecuting || isBatchExecuting}
+                debugLogs={debugLogs}
+                onClearLogs={handleClearDebugLogs}
+              />
             )}
           </div>
         );
@@ -349,13 +334,6 @@ const MosaicLayout = ({
           </div>
         );
 
-      case MOSAIC_PANELS.DEBUG:
-        return (
-          <div className={`mosaic-panel-content ${isCollapsed ? 'collapsed' : ''}`}>
-            {!isCollapsed && <DebugPanel debugLogs={debugLogs} onClearLogs={handleClearDebugLogs} />}
-          </div>
-        );
-
       default:
         return <div className="mosaic-panel-content">Unknown panel: {id}</div>;
     }
@@ -376,6 +354,7 @@ const MosaicLayout = ({
     handleSelectExecution,
     handleClearHistory,
     debugLogs,
+    handleClearDebugLogs,
     collapsedPanels,
     togglePanelCollapse,
     calculateDynamicLayout,
@@ -387,8 +366,8 @@ const MosaicLayout = ({
     switch (id) {
       case MOSAIC_PANELS.EDITOR:
         return 'SQL Editor';
-      case MOSAIC_PANELS.RESULTS:
-        return 'Results';
+      case MOSAIC_PANELS.OUTPUT:
+        return 'Output';
       case MOSAIC_PANELS.HISTORY:
         return 'History';
       case MOSAIC_PANELS.CATALOGS:
@@ -399,8 +378,6 @@ const MosaicLayout = ({
         return 'Snippets';
       case MOSAIC_PANELS.SESSION:
         return 'Session';
-      case MOSAIC_PANELS.DEBUG:
-        return 'Debug Console';
       default:
         return id;
     }

@@ -1024,6 +1024,10 @@ button:hover, input:focus, select:focus {
   border-right: none;
 }
 
+.output-panel {
+  border-right: none;
+}
+
 .results-content {
   height: 100%;
   display: flex;
@@ -1197,6 +1201,98 @@ button:hover, input:focus, select:focus {
   min-width: 16px;
   text-align: center;
   font-weight: 500;
+}
+
+.tab-badge.error {
+  background: var(--vscode-red);
+}
+
+/* Tabbed Output Panel Styles */
+.tabbed-output-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-bg-primary);
+  min-height: 0;
+}
+
+.tabbed-output-header {
+  height: var(--vscode-header-height);
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--vscode-bg-secondary);
+  border-bottom: 1px solid var(--vscode-border);
+  flex-shrink: 0;
+}
+
+.tabbed-output-tabs {
+  display: flex;
+  gap: 0;
+}
+
+.output-tab {
+  padding: 0 12px;
+  height: var(--vscode-button-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--vscode-text-secondary);
+  cursor: pointer;
+  transition: color 0.2s, border-bottom-color 0.2s;
+}
+
+.output-tab:hover {
+  color: var(--vscode-text-primary);
+}
+
+.output-tab.active {
+  color: var(--vscode-text-primary);
+  border-bottom-color: var(--vscode-blue);
+}
+
+.tabbed-output-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.status-indicator.executing {
+  color: var(--vscode-yellow);
+  background: var(--vscode-bg-tertiary);
+  animation: pulse 2s infinite;
+}
+
+.tabbed-output-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tab-pane {
+  height: 100%;
+  display: none;
+}
+
+.tab-pane.active {
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .bottom-panel-content {
